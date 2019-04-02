@@ -13,8 +13,12 @@ const float measur_range[2][2] = {{-0.3, 0.3}, {0, 1.8}};
 
 int pass_num = 0;                // 測定面を通過した回数（0番から始まるので注意）
 float pass_point[1000][2] = {0}; // 通過点の座標
+float pass_point_ave[2] = {0};   // 通過点の成分ごとの平均
+float pass_point_sig[2] = {0};   // 通過点の成分ごとの分散
 
 visualization_msgs::MarkerArray marker_array;
+visualization_msgs::Marker measur_surface;
+visualization_msgs::Marker statistics_surface;
 
 void addMarkerArray(visualization_msgs::MarkerArray &ma, int i, float x, float y)
 {
@@ -41,6 +45,60 @@ void addMarkerArray(visualization_msgs::MarkerArray &ma, int i, float x, float y
     ma.markers[i].color.g = 1.0f;
     ma.markers[i].color.b = 0.0f;
     ma.markers[i].color.a = 1.0f;
+}
+
+void generateMeasurSurface(visualization_msgs::Marker &m)
+{
+    m.header.frame_id = "/laser_frame";
+    m.header.stamp = ros::Time::now();
+    m.ns = "basic_shapes";
+    m.id = 0;
+
+    m.type = visualization_msgs::Marker::CUBE;
+    m.action = visualization_msgs::Marker::ADD;
+    m.lifetime = ros::Duration();
+
+    m.scale.x = measur_range[0][1] - measur_range[0][0];
+    m.scale.y = measur_range[1][1] - measur_range[1][0];
+    m.scale.z = 0.001;
+    m.pose.position.x = 0;
+    m.pose.position.y = abs(measur_range[1][1]);
+    m.pose.position.z = 0;
+    m.pose.orientation.x = 0;
+    m.pose.orientation.y = 0;
+    m.pose.orientation.z = 0;
+    m.pose.orientation.w = 1;
+    m.color.r = 1.0f;
+    m.color.g = 1.0f;
+    m.color.b = 1.0f;
+    m.color.a = 0.5f;
+}
+
+void generateStatisticsSurface(visualization_msgs::Marker &m)
+{
+    m.header.frame_id = "/laser_frame";
+    m.header.stamp = ros::Time::now();
+    m.ns = "basic_shapes";
+    m.id = 1;
+
+    m.type = visualization_msgs::Marker::CYLINDER;
+    m.action = visualization_msgs::Marker::ADD;
+    m.lifetime = ros::Duration();
+
+    m.scale.x = 2 * 3 * sqrt(pass_point_sig[0]);
+    m.scale.y = 2 * 3 * sqrt(pass_point_sig[1]);
+    m.scale.z = 0.001;
+    m.pose.position.x = pass_point_ave[0];
+    m.pose.position.y = pass_point_ave[1];
+    m.pose.position.z = 0;
+    m.pose.orientation.x = 0;
+    m.pose.orientation.y = 0;
+    m.pose.orientation.z = 0;
+    m.pose.orientation.w = 1;
+    m.color.r = 1.0f;
+    m.color.g = 1.0f;
+    m.color.b = 0.0f;
+    m.color.a = 0.5f;
 }
 
 void scanCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
@@ -94,7 +152,31 @@ void scanCallback(const sensor_msgs::LaserScan::ConstPtr &scan)
         float x = pass_point[pass_num][0];
         float y = pass_point[pass_num][1];
 
+        // 平均を算出
+        for (int i = 0; i < 2; i++)
+        {
+            float sum = 0;
+            for (int j = 0; j <= pass_num; j++)
+            {
+                sum += pass_point[j][i];
+            }
+            pass_point_ave[i] = sum / (pass_num + 1);
+        }
+        // 分散を算出
+        for (int i = 0; i < 2; i++)
+        {
+            float sum = 0;
+            for (int j = 0; j <= pass_num; j++)
+            {
+                sum += (pass_point[j][i] - pass_point_ave[i]) * (pass_point[j][i] - pass_point_ave[i]);
+            }
+            pass_point_sig[i] = sum / (pass_num + 1);
+        }
+
+        generateStatisticsSurface(statistics_surface);
+
         ROS_INFO("[apm]: %d:  (%f, %f)", pass_num, x, y);
+        ROS_INFO("[apm]: %d:  (%f, %f)", pass_num, pass_point_sig[0], pass_point_sig[1]);
 
         marker_array.markers.resize(pass_num + 1);
         addMarkerArray(marker_array, pass_num, x, y);
@@ -116,37 +198,20 @@ int main(int argc, char **argv)
     ros::Publisher markers_pub = n.advertise<visualization_msgs::MarkerArray>("marker_array", 1);
 
     // 計測面を可視化
-    ros::Publisher marker_pub = n.advertise<visualization_msgs::Marker>("marker", 1);
-    visualization_msgs::Marker marker;
-    marker.header.frame_id = "/laser_frame";
-    marker.header.stamp = ros::Time::now();
-    marker.ns = "basic_shapes";
-    marker.id = 0;
+    ros::Publisher measur_surface_pub = n.advertise<visualization_msgs::Marker>("measur_surface", 1);
 
-    marker.type = visualization_msgs::Marker::CUBE;
-    marker.action = visualization_msgs::Marker::ADD;
-    marker.lifetime = ros::Duration();
+    // 計測面を可視化
+    ros::Publisher statistics_surface_pub = n.advertise<visualization_msgs::Marker>("statistics_surface", 1);
+    generateMeasurSurface(measur_surface);
 
-    marker.scale.x = measur_range[0][1] - measur_range[0][0];
-    marker.scale.y = measur_range[1][1] - measur_range[1][0];
-    marker.scale.z = 0.001;
-    marker.pose.position.x = 0;
-    marker.pose.position.y = abs(measur_range[1][1]);
-    marker.pose.position.z = 0;
-    marker.pose.orientation.x = 0;
-    marker.pose.orientation.y = 0;
-    marker.pose.orientation.z = 0;
-    marker.pose.orientation.w = 1;
-    marker.color.r = 1.0f;
-    marker.color.g = 1.0f;
-    marker.color.b = 1.0f;
-    marker.color.a = 0.5f;
     ros::Rate loop_rate(10);
 
     while (ros::ok())
     {
-        marker_pub.publish(marker);
         markers_pub.publish(marker_array);
+
+        measur_surface_pub.publish(measur_surface);
+        statistics_surface_pub.publish(statistics_surface);
 
         ros::spinOnce();
         loop_rate.sleep();
